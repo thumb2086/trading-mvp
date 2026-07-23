@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from "recharts"
-import { TAIWAN_STOCKS, SECTORS } from "../lib/stocks"
+import { useEffect, useState } from "react"
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Line, ComposedChart, Area } from "recharts"
+import { COMMON_STOCKS, SECTORS, searchStocks } from "../lib/stocks"
 import { STRATEGY_NAMES_CN } from "../lib/strategies"
 
 interface StrategyResult {
@@ -18,17 +18,22 @@ interface PricePoint {
   date: string
   close: number
   volume: number
+  ma10: number | null
   ma20: number | null
   ma60: number | null
+  ma120: number | null
+  ma240: number | null
 }
 
 interface Data {
   symbol: string
   date: string
   price: number
+  initialCapital: number
   priceHistory: PricePoint[]
   strategies: StrategyResult[]
   best: StrategyResult
+  bestTrades: any[]
 }
 
 const cn = (name: string) => STRATEGY_NAMES_CN[name] ?? name
@@ -49,6 +54,7 @@ export default function Dashboard() {
   const [symbol, setSymbol] = useState("2330")
   const [search, setSearch] = useState("")
   const [selectedSector, setSelectedSector] = useState("")
+  const [searchResults, setSearchResults] = useState<{ symbol: string; name: string; sector: string }[]>([])
   const [compareData, setCompareData] = useState<{ symbol: string; name: string; sharpe: number; ret: number; acc: string }[]>([])
 
   const fetchData = async (sym: string) => {
@@ -68,13 +74,16 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData(symbol) }, [symbol])
 
+  // Load common stocks on mount
+  useEffect(() => { setSearchResults(COMMON_STOCKS) }, [])
+
   // Auto-add current stock to compare when data loads
   useEffect(() => {
     if (!data) return
-    setCompareData(prev => {
-      const exists = prev.find(c => c.symbol === symbol)
-      if (exists) return prev
-      const info = TAIWAN_STOCKS.find(s => s.symbol === symbol)
+      setCompareData(prev => {
+        const exists = prev.find(c => c.symbol === symbol)
+        if (exists) return prev
+        const info = COMMON_STOCKS.find(s => s.symbol === symbol) ?? { name: symbol }
       return [...prev, {
         symbol,
         name: info?.name ?? symbol,
@@ -89,19 +98,15 @@ export default function Dashboard() {
     setCompareData(prev => prev.filter(c => c.symbol !== sym))
   }
 
-  const filteredStocks = useMemo(() => {
-    let list = TAIWAN_STOCKS
-    if (selectedSector) list = list.filter(s => s.sector === selectedSector)
-    if (search) {
-      const q = search.toLowerCase()
-      list = list.filter(s =>
-        s.symbol.includes(q) || s.name.toLowerCase().includes(q)
-      )
-    }
-    return list
+  useEffect(() => {
+    const delay = setTimeout(async () => {
+      const results = await searchStocks(search, selectedSector)
+      setSearchResults(results)
+    }, 200)
+    return () => clearTimeout(delay)
   }, [search, selectedSector])
 
-  const stockInfo = TAIWAN_STOCKS.find(s => s.symbol === symbol)
+  const stockInfo = COMMON_STOCKS.find(s => s.symbol === symbol)
 
   return (
     <main className="min-h-screen bg-gray-950 text-gray-100">
@@ -145,7 +150,7 @@ export default function Dashboard() {
               </select>
             </div>
             <div className="flex flex-wrap gap-1.5 mt-2 max-h-28 overflow-y-auto">
-              {filteredStocks.slice(0, 40).map(s => (
+              {searchResults.slice(0, 60).map(s => (
                 <button
                   key={s.symbol}
                   onClick={() => { setSymbol(s.symbol); setSearch("") }}
@@ -154,8 +159,11 @@ export default function Dashboard() {
                   {s.symbol} {s.name}
                 </button>
               ))}
-              {filteredStocks.length > 40 && (
-                <span className="text-xs text-gray-500 self-center">+{filteredStocks.length - 40} 檔</span>
+              {searchResults.length === 0 && !search && (
+                <span className="text-xs text-gray-500 self-center">輸入代號或名稱搜尋全部台股</span>
+              )}
+              {searchResults.length > 60 && (
+                <span className="text-xs text-gray-500 self-center">+{searchResults.length - 60} 檔</span>
               )}
             </div>
           </div>
@@ -174,6 +182,7 @@ export default function Dashboard() {
                 <span className={data.best.totalReturn >= 0 ? "text-green-400" : "text-red-400"}>
                   {(data.best.totalReturn * 100).toFixed(1)}%
                 </span>
+                <span>初始資金: ${(data.initialCapital ?? 1_000_000).toLocaleString()}</span>
               </div>
             </div>
           )}
@@ -197,10 +206,13 @@ export default function Dashboard() {
             <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-gray-300">📈 股價走勢</h2>
-                <div className="flex gap-3 text-xs">
+                <div className="flex flex-wrap gap-3 text-xs">
                   <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-blue-400 inline-block"></span> 收盤價</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-yellow-500 inline-block"></span> MA20</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-purple-500 inline-block"></span> MA60</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-orange-400 inline-block"></span> MA10</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-yellow-500 inline-block"></span> MA20 月線</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-purple-500 inline-block"></span> MA60 季線</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-pink-500 inline-block"></span> MA120 半年線</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-gray-400 inline-block"></span> MA240 年線</span>
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={320}>
@@ -218,8 +230,11 @@ export default function Dashboard() {
                     formatter={(value: any) => [Number(value).toFixed(0), ""]}
                   />
                   <Area type="monotone" dataKey="close" fill="#3b82f6" fillOpacity={0.08} stroke="#3b82f6" strokeWidth={2} dot={false} name="收盤價" />
+                  <Line type="monotone" dataKey="ma10" stroke="#f97316" strokeWidth={1} dot={false} name="MA10" />
                   <Line type="monotone" dataKey="ma20" stroke="#eab308" strokeWidth={1.5} dot={false} name="MA20" />
                   <Line type="monotone" dataKey="ma60" stroke="#a855f7" strokeWidth={1.5} dot={false} name="MA60" />
+                  <Line type="monotone" dataKey="ma120" stroke="#ec4899" strokeWidth={1} strokeDasharray="4 2" dot={false} name="MA120" />
+                  <Line type="monotone" dataKey="ma240" stroke="#9ca3af" strokeWidth={1} strokeDasharray="4 2" dot={false} name="MA240" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -307,13 +322,57 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Trade Records for Best Strategy */}
+            <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden mb-6">
+              <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-300">📝 最佳策略交易紀錄 ({cn(data.best.name)})</h2>
+                <span className="text-xs text-gray-500">最近 20 筆</span>
+              </div>
+              {data.bestTrades && data.bestTrades.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-800 text-gray-500 text-xs">
+                        <th className="text-left p-2">方向</th>
+                        <th className="text-right p-2">進場日</th>
+                        <th className="text-right p-2">進場價</th>
+                        <th className="text-right p-2">出場日</th>
+                        <th className="text-right p-2">出場價</th>
+                        <th className="text-right p-2">損益</th>
+                        <th className="text-right p-2">報酬率</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.bestTrades.slice().reverse().map((t: any, i: number) => (
+                        <tr key={i} className="border-b border-gray-800/30 hover:bg-gray-800/30">
+                          <td className={`p-2 ${t.side === "做多" ? "text-green-400" : "text-red-400"}`}>{t.side}</td>
+                          <td className="text-right p-2 font-mono text-xs">{t.entryDate}</td>
+                          <td className="text-right p-2 font-mono">${t.entryPrice.toFixed(0)}</td>
+                          <td className="text-right p-2 font-mono text-xs">{t.exitDate}</td>
+                          <td className="text-right p-2 font-mono">${t.exitPrice.toFixed(0)}</td>
+                          <td className={`text-right p-2 font-mono ${t.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(0)}
+                          </td>
+                          <td className={`text-right p-2 font-mono ${t.pnlPercent >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            {(t.pnlPercent * 100).toFixed(1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-6 text-gray-600 text-sm">無交易紀錄</div>
+              )}
+            </div>
+
             {/* Multi-stock Comparison */}
             <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-gray-300">📈 跨股比較</h2>
                 <div className="flex flex-wrap gap-1">
                   {["0050", "0056", "00878", "00919", "00929"].map(sym => {
-                    const info = TAIWAN_STOCKS.find(s => s.symbol === sym)
+                    const info = COMMON_STOCKS.find(s => s.symbol === sym)
                     const inCompare = compareData.some(c => c.symbol === sym)
                     return (
                       <button

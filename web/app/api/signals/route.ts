@@ -22,33 +22,33 @@ export async function GET(request: Request) {
     const latestPrice = data[data.length - 1]
 
     const priceHistory = data.map(d => ({
-      date: d.date,
-      close: d.close,
-      volume: d.volume,
-      ma20: null as number | null,
-      ma60: null as number | null,
+      date: d.date, close: d.close, volume: d.volume,
+      ma10: null as number | null, ma20: null as number | null,
+      ma60: null as number | null, ma120: null as number | null,
+      ma240: null as number | null,
     }))
-    // compute MAs
+    const maPeriods = [10, 20, 60, 120, 240]
     for (let i = 0; i < priceHistory.length; i++) {
-      if (i >= 19) {
-        let s = 0
-        for (let j = i - 19; j <= i; j++) s += priceHistory[j].close
-        priceHistory[i].ma20 = s / 20
-      }
-      if (i >= 59) {
-        let s = 0
-        for (let j = i - 59; j <= i; j++) s += priceHistory[j].close
-        priceHistory[i].ma60 = s / 60
+      for (const p of maPeriods) {
+        if (i >= p - 1) {
+          let s = 0
+          for (let j = i - p + 1; j <= i; j++) s += priceHistory[j].close
+          ;(priceHistory[i] as any)[`ma${p}`] = s / p
+        }
       }
     }
+
+    const sorted = results.sort((a, b) => b.sharpe - a.sharpe)
 
     return NextResponse.json({
       symbol,
       date: latestPrice.date,
       price: latestPrice.close,
+      initialCapital: 1_000_000,
       priceHistory,
-      strategies: results.sort((a, b) => b.sharpe - a.sharpe),
-      best,
+      strategies: sorted,
+      best: sorted[0],
+      bestTrades: sorted[0].tradesList.slice(-20),
     })
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 })
