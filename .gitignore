@@ -8,3 +8,6 @@ data/tinyshakespeare.txt
 cache/
 *.pkl
 *.csv
+web/node_modules/
+web/.next/
+web/.env.local
