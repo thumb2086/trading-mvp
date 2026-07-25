@@ -82,22 +82,18 @@ function monthRange(start: Date, end: Date): { y: number; m: number; ym: string 
 async function fetchTWSE(symbol: string, start: string, end: string): Promise<OHLCV[]> {
   const s = new Date(start)
   const e = new Date(end)
-  const all: OHLCV[] = []
-  for (const { ym } of monthRange(s, e)) {
-    const data = await fetchTWSEmonth(symbol, ym)
-    all.push(...data)
-  }
+  const months = monthRange(s, e)
+  const results = await Promise.all(months.map(({ ym }) => fetchTWSEmonth(symbol, ym)))
+  const all = results.flat()
   return all.sort((a, b) => a.date.localeCompare(b.date))
 }
 
 async function fetchTPEx(symbol: string, start: string, end: string): Promise<OHLCV[]> {
   const s = new Date(start)
   const e = new Date(end)
-  const all: OHLCV[] = []
-  for (const { y, m } of monthRange(s, e)) {
-    const data = await fetchTPExMonth(symbol, y, m)
-    all.push(...data)
-  }
+  const months = monthRange(s, e)
+  const results = await Promise.all(months.map(({ y, m }) => fetchTPExMonth(symbol, y, m)))
+  const all = results.flat()
   return all.sort((a, b) => a.date.localeCompare(b.date))
 }
 
