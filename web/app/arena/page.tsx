@@ -47,7 +47,11 @@ const signalLabel = (s: number) => (s === 1 ? "買進" : s === -1 ? "賣出" : "
 export default function ArenaPage() {
   const [symbol, setSymbol] = useState("2330")
   const [input, setInput] = useState("2330")
+  const [market, setMarket] = useState("auto")
   const [days, setDays] = useState(60)
+  const [startDate, setStartDate] = useState("")
+  const [endDate, setEndDate] = useState("")
+  const [every, setEvery] = useState(3)
   const [heuristic, setHeuristic] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -56,7 +60,7 @@ export default function ArenaPage() {
 
   const fetchQuote = async (sym: string) => {
     try {
-      const r = await fetch(`/api/quote?symbol=${sym}`)
+      const r = await fetch(`/api/quote?symbol=${sym}&market=${market}`)
       const d = await r.json()
       setQuote(d)
     } catch (e: any) {
@@ -69,7 +73,10 @@ export default function ArenaPage() {
     setError("")
     setArena(null)
     try {
-      const r = await fetch(`/api/arena?symbol=${sym}&days=${days}&heuristic=${heuristic}`)
+      const params = new URLSearchParams({ symbol: sym, market, days: String(days), every: String(every), heuristic: String(heuristic) })
+      if (startDate) params.set("start", startDate)
+      if (endDate) params.set("end", endDate)
+      const r = await fetch(`/api/arena?${params.toString()}`)
       const d = await r.json()
       if (d.error) throw new Error(d.error + (d.stderr ? "\n" + d.stderr : ""))
       setArena(d)
@@ -82,7 +89,7 @@ export default function ArenaPage() {
 
   useEffect(() => {
     fetchQuote(symbol)
-  }, [symbol])
+  }, [symbol, market])
 
   const submit = () => {
     const s = input.trim() || "2330"
@@ -114,6 +121,7 @@ export default function ArenaPage() {
               <p className="text-xs text-gray-500">即時股市資料 × 多決策模型競技</p>
             </div>
           </div>
+          <a href="/market" className="text-xs text-green-400 hover:underline">市場總覽</a>
           <a href="/" className="text-xs text-blue-400 hover:underline">返回儀表板</a>
         </div>
       </header>
@@ -121,6 +129,14 @@ export default function ArenaPage() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Controls */}
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">市場</label>
+            <select className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm outline-none" value={market} onChange={e => setMarket(e.target.value)}>
+              <option value="auto">自動</option>
+              <option value="TW">台股</option>
+              <option value="US">美股</option>
+            </select>
+          </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">股票代號</label>
             <input
@@ -136,6 +152,23 @@ export default function ArenaPage() {
               <option value={30}>30 天</option>
               <option value={60}>60 天</option>
               <option value={90}>90 天</option>
+              <option value={180}>180 天</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">開始日期</label>
+            <input type="date" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm outline-none" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">結束日期</label>
+            <input type="date" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm outline-none" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">JEV 決策間隔(根)</label>
+            <select className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm outline-none" value={every} onChange={e => setEvery(Number(e.target.value))}>
+              <option value={1}>每根 (多交易)</option>
+              <option value={3}>每 3 根</option>
+              <option value={5}>每 5 根</option>
             </select>
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">

@@ -58,21 +58,24 @@ def jev_signal_series(df: pd.DataFrame, model: JEVDecisionModel, every: int = 5)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", type=str, default="2330")
+    parser.add_argument("--market", type=str, default="auto", choices=["auto", "TW", "US"])
     parser.add_argument("--days", type=int, default=90)
+    parser.add_argument("--start", type=str, default=None, help="Start date YYYY-MM-DD (inclusive)")
+    parser.add_argument("--end", type=str, default=None, help="End date YYYY-MM-DD (inclusive)")
     parser.add_argument("--jev-model", type=str, default=None)
-    parser.add_argument("--jev-every", type=int, default=5)
+    parser.add_argument("--jev-every", type=int, default=3)
     parser.add_argument("--heuristic", action="store_true", help="Force heuristic JEV (no LLM)")
 
     args = parser.parse_args()
 
-
     symbol = args.symbol
-    print(f"Fetching real-time quote for {symbol}...")
-    quote = fetch_realtime_quote(symbol)
+    market = args.market
+    print(f"Fetching real-time quote for {symbol} ({market})...")
+    quote = fetch_realtime_quote(symbol, market)
     print(json.dumps(quote, ensure_ascii=False))
 
     print(f"Fetching {args.days} days of OHLCV...")
-    df = fetch_recent_ohlcv(symbol, args.days)
+    df = fetch_recent_ohlcv(symbol, args.days, market)
     if df.empty:
         print("No data, falling back to cached loader")
         try:
@@ -81,6 +84,13 @@ def main():
         except Exception as e:
             print("load_stock failed:", e)
             sys.exit(1)
+    # date range filter (causal simulation window)
+    if args.start:
+        df = df[df["date"] >= args.start].reset_index(drop=True)
+    if args.end:
+        df = df[df["date"] <= args.end].reset_index(drop=True)
+    if df.empty:
+        print("No data in requested range"); sys.exit(1)
     print(f"Got {len(df)} bars, {df['date'].iloc[0]} ~ {df['date'].iloc[-1]}")
 
     # Fixed strategies backtest
@@ -137,8 +147,10 @@ def main():
     os.makedirs(os.path.join(OUTPUT_DIR, "arena"), exist_ok=True)
     out = {
         "symbol": symbol,
+        "market": market,
         "period": {"start": str(df["date"].iloc[0]), "end": str(df["date"].iloc[-1]),
-                   "days": len(df)},
+                   "days": len(df),
+                   "requested_start": args.start, "requested_end": args.end},
         "quote": quote,
         "fixed": [r for r in fixed_results],
         "jev": jev_stats,

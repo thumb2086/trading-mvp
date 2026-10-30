@@ -124,6 +124,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <a href="/market" className="text-xs text-green-400 hover:underline">市場總覽 →</a>
             <a href="/arena" className="text-xs text-purple-400 hover:underline">決策競技場 →</a>
             <span className="text-xs text-gray-500">
               {data ? `${data.date} 收盤價` : "—"}

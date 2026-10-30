@@ -1,19 +1,18 @@
-"""Real-time market data layer for Taiwan stocks (TWSE/TPEx official open APIs + yfinance fallback).
+"""Real-time market data layer for Taiwan & US stocks.
 
-Designed to be importable by both the Python backtest engine and the arena runner.
+Supports TW (TWSE/TPEx MIS) and US (Yahoo) real-time quotes and recent OHLCV.
 """
 from __future__ import annotations
 
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, List
 
 import pandas as pd
 import requests
 import yfinance as yf
 
-TWSE_QUOTE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_AVG_ALL"  # daily avg
 TWSE_REALTIME_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 TPEx_REALTIME_URL = "https://mis.tpex.org.tw/stock/api/getStockInfo.jsp"
 
@@ -27,82 +26,84 @@ def _safe_float(v):
         return None
 
 
-def fetch_realtime_quote(symbol: str) -> dict[str, Any]:
-    """Fetch the latest quote for a single Taiwan stock.
+def _is_us_symbol(symbol: str) -> bool:
+    # US symbols are alphabetic (possibly with .); TW symbols are 4-digit numeric
+    s = symbol.strip().upper()
+    return not s.isdigit()
 
-    Uses TWSE/TPEx MIS real-time endpoint first, falls back to yfinance.
-    """
+
+def fetch_realtime_quote(symbol: str, market: str = "auto") -> dict[str, Any]:
+    """Fetch latest quote for a stock (TW or US)."""
     symbol = symbol.strip().upper()
-    # TWSE MIS: ex_ch=tse_2330.tw or otc_...
-    for market in ("tse", "otc"):
+    if market == "auto":
+        market = "US" if _is_us_symbol(symbol) else "TW"
+
+    if market == "US":
+        return _fetch_us_quote(symbol)
+    return _fetch_tw_quote(symbol)
+
+
+def _fetch_tw_quote(symbol: str) -> dict[str, Any]:
+    for mkt in ("tse", "otc"):
         try:
-            ex_ch = f"{market}_{symbol}.tw"
-            url = f"{TWSE_REALTIME_URL if market == 'tse' else TPEx_REALTIME_URL}?ex_ch={ex_ch}&json=1&delay=0"
+            base = TWSE_REALTIME_URL if mkt == "tse" else TPEx_REALTIME_URL
+            url = f"{base}?ex_ch={mkt}_{symbol}.tw&json=1&delay=0"
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
             j = r.json()
-            msg = j.get("msgArray") or []
+            msg = (j.get("msgArray") or [None])[0]
             if msg:
-                m = msg[0]
-                price = _safe_float(m.get("z")) or _safe_float(m.get("pz"))  # z=current, pz=prev close
-                prev = _safe_float(m.get("pz")) or _safe_float(m.get("y"))  # y=yesterday close
-                vol = _safe_float(m.get("tv"))  # today volume
-                high = _safe_float(m.get("h"))
-                low = _safe_float(m.get("l"))
-                open_ = _safe_float(m.get("o"))
-                name = m.get("n") or m.get("nf", "")
-                change = None
-                if price is not None and prev is not None and prev != 0:
-                    change = (price - prev) / prev
+                price = _safe_float(msg.get("z")) or _safe_float(msg.get("pz"))
+                prev = _safe_float(msg.get("pz")) or _safe_float(msg.get("y"))
+                change = (price - prev) / prev if price is not None and prev not in (None, 0) else None
                 return {
-                    "symbol": symbol,
-                    "name": name,
-                    "market": market.upper(),
-                    "price": price,
-                    "prev_close": prev,
-                    "open": open_,
-                    "high": high,
-                    "low": low,
-                    "volume": vol,
+                    "symbol": symbol, "name": msg.get("n") or msg.get("nf", ""),
+                    "market": mkt.upper(), "price": price, "prev_close": prev,
+                    "open": _safe_float(msg.get("o")), "high": _safe_float(msg.get("h")),
+                    "low": _safe_float(msg.get("l")), "volume": _safe_float(msg.get("tv")),
                     "change_pct": round(change * 100, 2) if change is not None else None,
-                    "source": "MIS",
-                    "as_of": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    "source": "MIS", "as_of": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
                 }
         except Exception:
             continue
+    # fallback yfinance TW
+    return _fetch_yf_quote(f"{symbol}.TW", symbol, "TW")
 
-    # Fallback: yfinance
+
+def _fetch_us_quote(symbol: str) -> dict[str, Any]:
+    return _fetch_yf_quote(symbol, symbol, "US")
+
+
+def _fetch_yf_quote(ticker_sym: str, symbol: str, market: str) -> dict[str, Any]:
     try:
-        t = yf.Ticker(f"{symbol}.TW")
+        t = yf.Ticker(ticker_sym)
         info = t.info or {}
         price = info.get("regularMarketPrice") or info.get("currentPrice")
         prev = info.get("previousClose")
         change = (price - prev) / prev if price and prev else None
         return {
-            "symbol": symbol,
-            "name": info.get("shortName", ""),
-            "market": "TW",
-            "price": _safe_float(price),
-            "prev_close": _safe_float(prev),
-            "open": _safe_float(info.get("open")),
-            "high": _safe_float(info.get("dayHigh")),
-            "low": _safe_float(info.get("dayLow")),
-            "volume": _safe_float(info.get("volume")),
+            "symbol": symbol, "name": info.get("shortName", ""),
+            "market": market, "price": _safe_float(price), "prev_close": _safe_float(prev),
+            "open": _safe_float(info.get("open")), "high": _safe_float(info.get("dayHigh")),
+            "low": _safe_float(info.get("dayLow")), "volume": _safe_float(info.get("volume")),
             "change_pct": round(change * 100, 2) if change is not None else None,
-            "source": "yfinance",
-            "as_of": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "source": "yfinance", "as_of": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
         }
     except Exception as e:
         return {"symbol": symbol, "error": str(e), "source": "none"}
 
 
-def fetch_recent_ohlcv(symbol: str, days: int = 90) -> pd.DataFrame:
-    """Fetch recent daily OHLCV via yfinance (cached by caller if needed)."""
+def fetch_recent_ohlcv(symbol: str, days: int = 90, market: str = "auto") -> pd.DataFrame:
+    """Fetch recent daily OHLCV (TW via yfinance .TW, US direct)."""
+    symbol = symbol.strip().upper()
+    if market == "auto":
+        market = "US" if _is_us_symbol(symbol) else "TW"
+
     end = datetime.now()
     start = end - timedelta(days=days + 10)
-    t = yf.Ticker(f"{symbol}.TW")
+    suffix = "" if market == "US" else ".TW"
+    t = yf.Ticker(f"{symbol}{suffix}")
     df = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
-    if df.empty:
-        # try TPEx suffix
+    if df.empty and market == "TW":
         t = yf.Ticker(f"{symbol}.TWO")
         df = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
     if df.empty:
@@ -115,29 +116,18 @@ def fetch_recent_ohlcv(symbol: str, days: int = 90) -> pd.DataFrame:
     return df[["date", "open", "high", "low", "close", "volume"]]
 
 
-def fetch_all_twse_quotes(limit: int = 200) -> list[dict[str, Any]]:
-    """Fetch latest close for many stocks via TWSE daily ALL endpoint (not true real-time, daily)."""
-    try:
-        r = requests.get("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-                         headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        data = r.json()
-        out = []
-        for row in data[:limit]:
-            out.append({
-                "symbol": str(row.get("Code", "")).strip(),
-                "name": row.get("Name", ""),
-                "close": _safe_float(row.get("ClosingPrice")),
-                "change": _safe_float(row.get("Change")),
-                "volume": _safe_float(row.get("TradeVolume")),
-            })
-        return out
-    except Exception as e:
-        return [{"error": str(e)}]
+def fetch_batch_quotes(symbols: List[str], market: str = "auto") -> List[dict[str, Any]]:
+    """Fetch quotes for multiple symbols."""
+    out = []
+    for s in symbols:
+        out.append(fetch_realtime_quote(s, market))
+    return out
 
 
 if __name__ == "__main__":
     import sys
     sym = sys.argv[1] if len(sys.argv) > 1 else "2330"
-    print(json.dumps(fetch_realtime_quote(sym), ensure_ascii=False, indent=2))
-    df = fetch_recent_ohlcv(sym, 10)
-    print(df.tail(3).to_string(index=False))
+    mkt = sys.argv[2] if len(sys.argv) > 2 else "auto"
+    print(json.dumps(fetch_realtime_quote(sym, mkt), ensure_ascii=False, indent=2))
+    df = fetch_recent_ohlcv(sym, 5, mkt)
+    print(df.tail(2).to_string(index=False))

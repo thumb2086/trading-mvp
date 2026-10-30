@@ -13,13 +13,18 @@ function projectRoot() {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const symbol = (searchParams.get("symbol") || "2330").trim()
+  const market = searchParams.get("market") || "auto"
   const days = parseInt(searchParams.get("days") || "60")
+  const start = searchParams.get("start") || ""
+  const end = searchParams.get("end") || ""
   const heuristic = searchParams.get("heuristic") === "1" || searchParams.get("heuristic") === "true"
   const jevModel = searchParams.get("jevModel") || ""
-  const every = parseInt(searchParams.get("every") || "5")
+  const every = parseInt(searchParams.get("every") || "3")
 
   const root = projectRoot()
-  const args = ["run_arena.py", "--symbol", symbol, "--days", String(days)]
+  const args = ["run_arena.py", "--symbol", symbol, "--market", market, "--days", String(days)]
+  if (start) args.push("--start", start)
+  if (end) args.push("--end", end)
   if (heuristic) args.push("--heuristic")
   if (jevModel) args.push("--jev-model", jevModel)
   args.push("--jev-every", String(every))

@@ -32,34 +32,34 @@ def _heuristic_decision(state_doc: str) -> tuple[str, float, dict]:
     m = re.search(r"20d ([-\d.]+)%", text)
     r20 = float(m.group(1)) if m else 0.0
 
-    # scoring
-    if rsi < 30:
+    # scoring (more responsive thresholds for multi-trade simulation)
+    if rsi < 45:
         score += 2
-        reasons["rsi"] = "oversold"
-    elif rsi > 70:
+        reasons["rsi"] = "oversold" if rsi < 30 else "weak"
+    elif rsi > 55:
         score -= 2
-        reasons["rsi"] = "overbought"
+        reasons["rsi"] = "overbought" if rsi > 70 else "strong"
     else:
         reasons["rsi"] = "neutral"
 
-    if vs20 < -3:
+    if vs20 < -2:
         score += 1.5
         reasons["trend"] = "below sma20"
-    elif vs20 > 3:
-        score -= 0.5
+    elif vs20 > 2:
+        score -= 1.0
         reasons["trend"] = "above sma20"
 
-    if r20 < -5:
+    if r20 < -3:
         score += 1
         reasons["momentum"] = "negative 20d"
-    elif r20 > 5:
+    elif r20 > 3:
         score -= 0.5
         reasons["momentum"] = "positive 20d"
 
-    # map score to action
-    if score >= 2:
+    # map score to action (lower bar -> more trades)
+    if score >= 1.5:
         action = "BUY"
-    elif score <= -2:
+    elif score <= -1.5:
         action = "SELL"
     else:
         action = "HOLD"
@@ -108,3 +108,17 @@ class JEVDecisionModel:
     @staticmethod
     def available() -> bool:
         return SO1_AVAILABLE
+
+    @staticmethod
+    def device_info() -> dict:
+        info = {"so1_available": SO1_AVAILABLE, "torch": None, "cuda": False, "mps": False}
+        try:
+            import torch
+            info["torch"] = torch.__version__
+            info["cuda"] = bool(torch.cuda.is_available())
+            info["mps"] = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+            if info["cuda"]:
+                info["gpu_name"] = torch.cuda.get_device_name(0)
+        except Exception as e:
+            info["error"] = str(e)
+        return info
