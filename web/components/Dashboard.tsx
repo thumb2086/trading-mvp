@@ -56,6 +56,9 @@ export default function Dashboard() {
   const [selectedSector, setSelectedSector] = useState("")
   const [searchResults, setSearchResults] = useState<{ symbol: string; name: string; sector: string }[]>([])
   const [compareData, setCompareData] = useState<{ symbol: string; name: string; sharpe: number; ret: number; acc: string }[]>([])
+  const [tradeSide, setTradeSide] = useState<"做多" | "做空">("做多")
+  const [tradeQty, setTradeQty] = useState("")
+  const [tradeLever, setTradeLever] = useState(2)
 
   const fetchData = async (sym: string) => {
     setLoading(true)
@@ -121,6 +124,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <a href="/arena" className="text-xs text-purple-400 hover:underline">決策競技場 →</a>
             <span className="text-xs text-gray-500">
               {data ? `${data.date} 收盤價` : "—"}
             </span>
@@ -261,6 +265,80 @@ export default function Dashboard() {
                 <div className="text-xl font-bold">${data.price.toFixed(0)}</div>
                 <div className="text-xs text-gray-500">{data.date}</div>
               </div>
+            </div>
+
+            {/* ⚡ 槓桿交易面板 */}
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
+              <h2 className="text-sm font-semibold text-gray-300 mb-3">⚡ 槓桿</h2>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* 方向 */}
+                <select
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm outline-none"
+                  value={tradeSide}
+                  onChange={e => setTradeSide(e.target.value as "做多" | "做空")}
+                >
+                  <option value="做多">做多</option>
+                  <option value="做空">做空</option>
+                </select>
+                {/* 數量 */}
+                <div className="relative">
+                  <input
+                    className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm outline-none w-32"
+                    placeholder="數量"
+                    type="number"
+                    min="1"
+                    value={tradeQty}
+                    onChange={e => setTradeQty(e.target.value)}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">股</span>
+                </div>
+                {/* 槓桿倍數 */}
+                <select
+                  className="bg-gray-800 border border-green-700 rounded-lg px-3 py-2 text-sm outline-none text-green-400 font-mono"
+                  value={tradeLever}
+                  onChange={e => setTradeLever(Number(e.target.value))}
+                >
+                  <option value={1}>1X</option>
+                  <option value={2}>2X</option>
+                  <option value={3}>3X</option>
+                  <option value={5}>5X</option>
+                  <option value={10}>10X</option>
+                </select>
+                {/* 開倉按鈕 */}
+                <button
+                  className={`px-5 py-2 rounded-lg text-sm font-bold text-white transition ${
+                    tradeSide === "做多"
+                      ? "bg-green-600 hover:bg-green-500"
+                      : "bg-red-600 hover:bg-red-500"
+                  }`}
+                  onClick={() => {
+                    if (!tradeQty || Number(tradeQty) <= 0) return
+                    const qty = Number(tradeQty)
+                    const lever = tradeLever
+                    const notional = qty * data.price
+                    const margin = notional / lever
+                    alert(
+                      `${tradeSide} ${qty} 股 ${data.symbol} (${stockInfo?.name})\n` +
+                      `價格: $${data.price.toFixed(0)}\n` +
+                      `名目金額: $${notional.toLocaleString()}\n` +
+                      `槓桿: ${lever}X\n` +
+                      `保證金: $${margin.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                    )
+                  }}
+                >
+                  開
+                </button>
+              </div>
+              {/* 預估資訊 */}
+              {tradeQty && Number(tradeQty) > 0 && data.price > 0 && (
+                <div className="mt-3 flex gap-6 text-xs text-gray-500">
+                  <span>名目: ${(Number(tradeQty) * data.price).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  <span>保證金: ${(Number(tradeQty) * data.price / tradeLever).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  <span className={tradeSide === "做多" ? "text-green-400" : "text-red-400"}>
+                    {tradeSide} {tradeLever}X 槓桿
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Sharpe Chart */}

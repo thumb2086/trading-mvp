@@ -2,3 +2,11 @@ pandas>=1.0
 numpy>=1.20
 yfinance>=0.2
 deap>=1.4
+requests>=2.28
+
+# Optional: JEV-style open decision model (open-alternative-jev / so1)
+# Install from source:
+#   pip install "git+https://github.com/ikermoel/open-alternative-jev.git"
+# Requires torch>=2.1, transformers>=4.51 (already present in this env).
+# Without it, the arena falls back to a heuristic JEV-like scorer.
+
